@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: portalcativo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portalcativo
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:5433:5432"
+  
+  nginx:
+    image: nginx:alpine
+    container_name: portalcativo-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../build:/usr/share/nginx/html:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  pgdata:
