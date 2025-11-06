@@ -43,6 +43,7 @@ services:
     command: >-
       sh -c "npm install && node --loader ts-node/esm src/main.ts"
 
+
   nginx:
     image: nginx:alpine
     container_name: portalcativo-nginx

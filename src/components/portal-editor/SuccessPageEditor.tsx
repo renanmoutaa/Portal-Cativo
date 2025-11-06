@@ -9,7 +9,6 @@ import {
   Upload,
   Eye,
   CheckCircle,
-  Wifi,
   Facebook,
   Instagram,
   Twitter,
@@ -21,7 +20,7 @@ import {
 import { Separator } from "../ui/separator";
 import { Badge } from "../ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+// Removed unused Select imports to satisfy lint rules
 import { Slider } from "../ui/slider";
 import { PortalPostLoginConfig } from "../../portal/config";
 import { getApiBases } from "../../config/api";
@@ -80,7 +79,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
       const file = e.target.files?.[0];
       if (!file) return;
       const controllerId = (() => {
-        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch (_) { return 1; }
+        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch { return 1; }
       })();
       const { NEST_BASE } = await getApiBases();
       const fd = new FormData();
@@ -103,7 +102,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
       const file = e.target.files?.[0];
       if (!file) return;
       const controllerId = (() => {
-        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch (_) { return 1; }
+        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch { return 1; }
       })();
       const { NEST_BASE } = await getApiBases();
       const fd = new FormData();
@@ -213,7 +212,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
     return backgroundColor;
   };
 
-  const addElement = (type: string) => {
+  const addElement = (type: "text" | "button") => {
     const newElement = {
       id: Date.now(),
       type,
@@ -233,6 +232,10 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
       el.id === id ? { ...el, [field]: value } : el
     ));
   };
+
+  // Derived values to avoid using arrays directly in styles/labels
+  const borderRadiusValue = (borderRadius?.[0] ?? 16);
+  const opacityValue = (opacity?.[0] ?? 95);
 
   return (
     <div className="grid lg:grid-cols-3 gap-6">
@@ -313,7 +316,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <Label className="text-xs">Arredondamento</Label>
-                      <span className="text-xs text-slate-600">{borderRadius}px</span>
+                      <span className="text-xs text-slate-600">{borderRadiusValue}px</span>
                     </div>
                     <Slider value={borderRadius} onValueChange={setBorderRadius} max={40} step={2} />
                   </div>
@@ -321,7 +324,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <Label className="text-xs">Opacidade</Label>
-                      <span className="text-xs text-slate-600">{opacity}%</span>
+                      <span className="text-xs text-slate-600">{opacityValue}%</span>
                     </div>
                     <Slider value={opacity} onValueChange={setOpacity} max={100} step={5} />
                   </div>
@@ -524,7 +527,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                 }}
               >
                 <div className="w-full max-w-md">
-                  <div className="w-full p-6 border text-center space-y-6" style={{ borderRadius: `${borderRadius}px`, backgroundColor: `rgba(255,255,255,${opacity/100})`, boxShadow: cardShadow ? '0 8px 28px rgba(0,0,0,0.12)' : undefined }}>
+                  <div className="w-full p-6 border text-center space-y-6" style={{ borderRadius: `${borderRadiusValue}px`, backgroundColor: `rgba(255,255,255,${opacityValue/100})`, boxShadow: cardShadow ? '0 8px 28px rgba(0,0,0,0.12)' : undefined }}>
                   {showLogo && logoUrl && (
                     <div className="w-full flex items-center justify-center mb-2">
                       <img src={logoUrl} alt="Logo" style={{ height: `${logoSize}px`, width: 'auto' }} />
@@ -536,7 +539,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                       className="w-20 h-20 flex items-center justify-center animate-bounce"
                       style={{ 
                         backgroundColor: accentColor,
-                        borderRadius: `${borderRadius}px`
+                        borderRadius: `${borderRadiusValue}px`
                       }}
                     >
                       <CheckCircle className="h-12 w-12 text-white" />
@@ -582,7 +585,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                         className="inline-block px-4 py-2 text-white"
                         style={{ 
                           backgroundColor: accentColor,
-                          borderRadius: `${(borderRadius as number[])[0] / 2}px`
+                        borderRadius: `${borderRadiusValue / 2}px`
                         }}
                       >
                         {promoCode}
@@ -599,7 +602,7 @@ export function SuccessPageEditor({ viewMode, previewWidth, config, onConfigChan
                           <button
                             key={key}
                             className="w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 transition-colors"
-                            style={{ borderRadius: `${(borderRadius as number[])[0] / 2}px` }}
+                            style={{ borderRadius: `${borderRadiusValue / 2}px` }}
                           >
                             <Icon className="h-5 w-5 text-slate-700" />
                           </button>
