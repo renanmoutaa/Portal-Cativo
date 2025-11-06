@@ -16,7 +16,7 @@ $backendRoot = Join-Path $repoRoot 'backend'
 $fastapiRoot = Join-Path $backendRoot 'fastapi'
 $nestRoot = Join-Path $backendRoot 'nest'
 $scriptsRoot = Join-Path $repoRoot 'scripts'
-$composePath = Join-Path $backendRoot 'docker-compose.yml'
+$composePath = Join-Path $repoRoot 'docker-compose.yml'
 
 function Write-Info($msg) { Write-Host "[start] $msg" }
 function Write-Warn($msg) { Write-Warning "[start] $msg" }

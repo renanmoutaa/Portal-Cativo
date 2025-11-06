@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 # Resolve repo root from this script location
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$composePath = Join-Path $repoRoot 'backend\docker-compose.yml'
+$composePath = Join-Path $repoRoot 'docker-compose.yml'
 
 # Prepare logging (prefer ProgramData, fallback to LocalAppData)
 function New-LogDir {
