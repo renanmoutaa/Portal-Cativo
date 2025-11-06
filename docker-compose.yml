@@ -8,10 +8,41 @@ services:
       POSTGRES_PASSWORD: portal
       POSTGRES_DB: portalcativo
     volumes:
-      - pgdata:/var/lib/postgresql
+      - pgdata:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5433:5432"
   
+  fastapi:
+    image: python:3.11-slim
+    container_name: portalcativo-fastapi
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend/fastapi:/app
+    environment:
+      FASTAPI_PORT: 4001
+      NEST_PORT: 4002
+      NEST_HOST: nest
+    depends_on:
+      - nest
+    command: >-
+      sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 4001"
+
+  nest:
+    image: node:20-alpine
+    container_name: portalcativo-nest
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend/nest:/app
+    environment:
+      NEST_PORT: 4002
+      DATABASE_URL: postgresql://portal:portal@postgres:5432/portalcativo
+    depends_on:
+      - postgres
+    command: >-
+      sh -c "npm install && node --loader ts-node/esm src/main.ts"
+
   nginx:
     image: nginx:alpine
     container_name: portalcativo-nginx
@@ -19,8 +50,11 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./backend/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./backend/nginx:/etc/nginx/conf.d:ro
       - ./build:/usr/share/nginx/html:ro
+    depends_on:
+      - fastapi
+      - nest
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

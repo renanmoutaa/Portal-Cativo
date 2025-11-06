@@ -13,6 +13,8 @@ load_dotenv(dotenv_path="../.env")
 
 NEST_PORT = int(os.getenv("NEST_PORT", "4002"))
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "4001"))
+NEST_HOST = os.getenv("NEST_HOST", "localhost")
+NEST_BASE = f"http://{NEST_HOST}:{NEST_PORT}"
 FRONT_ORIGIN = os.getenv("FRONT_ORIGIN", "http://localhost:4000")
 # Permitir origens locais comuns em desenvolvimento: localhost, 127.0.0.1, faixas privadas 10.x, 192.168.x, 172.16-31.x
 FRONT_ORIGIN_REGEX = os.getenv(
@@ -130,7 +132,7 @@ def on_startup():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "nest": f"http://localhost:{NEST_PORT}", "fastapi": FASTAPI_PORT}
+    return {"status": "ok", "nest": NEST_BASE, "fastapi": FASTAPI_PORT}
 
 @app.post("/auth/login")
 async def auth_login(payload: LoginPayload, request: Request, x_forwarded_for: Optional[str] = Header(None)):
@@ -146,7 +148,7 @@ async def auth_login(payload: LoginPayload, request: Request, x_forwarded_for: O
     try:
         import requests
         r = requests.post(
-            f"http://localhost:{NEST_PORT}/connections",
+            f"{NEST_BASE}/connections",
             json={
                 "name": payload.name,
                 "email": payload.email,
@@ -176,7 +178,7 @@ async def auth_login(payload: LoginPayload, request: Request, x_forwarded_for: O
         
         if not site_id:
             # Buscar siteId da config da controladora
-            r_cfg = requests.get(f"http://localhost:{NEST_PORT}/controllers/{ctrl_id}/portal-config", timeout=2.0)
+            r_cfg = requests.get(f"{NEST_BASE}/controllers/{ctrl_id}/portal-config", timeout=2.0)
             cfg_json = {}
             try:
                 cfg_json = r_cfg.json()
@@ -450,7 +452,7 @@ async def clients_connected(
         try:
             import requests
             r_aps = requests.get(
-                f"http://localhost:{NEST_PORT}/controllers/{int(controllerId)}/aps",
+                f"{NEST_BASE}/controllers/{int(controllerId)}/aps",
                 params={"siteId": siteId},
                 timeout=2.5,
             )
