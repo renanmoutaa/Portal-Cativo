@@ -26,6 +26,7 @@ import { Badge } from "../ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../ui/accordion";
 import { PortalLoginConfig } from "../../portal/config";
+import { getApiBases } from "../../config/api";
 
 const templates = [
   { id: "modern", name: "Moderno", bg: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", primary: "#667eea" },
@@ -136,29 +137,49 @@ useEffect(() => {
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  function handleBackgroundFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setBackgroundImage(dataUrl);
-      setBackgroundType("image");
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+  async function handleBackgroundFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const controllerId = (() => {
+        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch (_) { return 1; }
+      })();
+      const { NEST_BASE } = await getApiBases();
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${NEST_BASE}/controllers/${controllerId}/upload-image`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({} as any));
+      if (data?.url) {
+        setBackgroundImage(String(data.url));
+        setBackgroundType("image");
+      }
+    } catch (err) {
+      console.warn('Falha no upload de imagem de fundo:', err);
+    } finally {
+      e.target.value = "";
+    }
   }
   
-  function handleLogoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setLogoUrl(dataUrl);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+  async function handleLogoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const controllerId = (() => {
+        try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch (_) { return 1; }
+      })();
+      const { NEST_BASE } = await getApiBases();
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${NEST_BASE}/controllers/${controllerId}/upload-image`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({} as any));
+      if (data?.url) {
+        setLogoUrl(String(data.url));
+      }
+    } catch (err) {
+      console.warn('Falha no upload da logo:', err);
+    } finally {
+      e.target.value = "";
+    }
   }
   // Propagar configuração atual para o Editor pai
   useEffect(() => {

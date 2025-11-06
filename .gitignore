@@ -44,3 +44,6 @@ backend/fastapi/.env
 
 # Docker (optional overrides)
 docker-compose.override.yml
+
+# Local SSH keys for this repo (do not commit private keys)
+.ssh/

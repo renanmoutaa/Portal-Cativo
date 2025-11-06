@@ -194,6 +194,8 @@ export const defaultPortalLoginConfig: PortalLoginConfig = {
 
 export const STORAGE_KEY = "portalLoginConfig";
 
+export const STORAGE_KEY_POST = "portalPostLoginConfig";
+
 export function savePortalLoginConfig(config: PortalLoginConfig): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -221,6 +223,25 @@ export function savePortalLoginConfig(config: PortalLoginConfig): void {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(config)
         });
+        // Replicar para todas as controladoras para manter edição unificada
+        try {
+          const listRes = await fetch(`${NEST_BASE}/controllers`, { cache: "no-store" });
+          if (listRes.ok) {
+            const listData = await listRes.json().catch(() => ({} as any));
+            const list = Array.isArray(listData.controllers) ? listData.controllers : [];
+            await Promise.all(list.map(async (c: any) => {
+              const id = Number(c?.id) || 0;
+              if (!id) return;
+              try {
+                await fetch(`${NEST_BASE}/controllers/${id}/portal-login-config`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(config)
+                });
+              } catch (_) {}
+            }));
+          }
+        } catch (_) {}
       } catch (_err) {
         // silencioso: fallback é localStorage
       }
@@ -267,8 +288,27 @@ export async function syncPortalLoginConfigFromBackend(): Promise<void> {
         const listRes = await fetch(`${NEST_BASE}/controllers`, { cache: "no-store" });
         if (listRes.ok) {
           const listData = await listRes.json().catch(() => ({} as any));
-          if (listData && Array.isArray(listData.controllers) && listData.controllers.length) {
-            controllerId = Number(listData.controllers[0].id) || 1;
+          const list = Array.isArray(listData.controllers) ? listData.controllers : [];
+          // Selecionar automaticamente a primeira controladora online
+          let chosen = 0;
+          for (const c of list) {
+            const id = Number(c?.id) || 0;
+            if (!id) continue;
+            try {
+              const ping = await fetch(`${NEST_BASE}/controllers/${id}/sites`, { cache: "no-store" });
+              if (!ping.ok) continue;
+              const data = await ping.json().catch(() => ({}));
+              const hasError = data && typeof data.error === 'string';
+              // Considera online se requisição foi OK e sem erro explícito
+              if (!hasError) { chosen = id; break; }
+            } catch (_) {
+              // offline ou inacessível
+            }
+          }
+          if (chosen > 0) {
+            controllerId = chosen;
+          } else if (list.length) {
+            controllerId = Number(list[0].id) || 1;
           }
         }
       } catch (_) {}
@@ -277,14 +317,61 @@ export async function syncPortalLoginConfigFromBackend(): Promise<void> {
     if (!controllerId || controllerId <= 0) controllerId = 1;
     try { localStorage.setItem("portal.selectedControllerId", String(controllerId)); } catch (_) {}
 
+    // Buscar configuração da controladora selecionada
     const res = await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-login-config`, { cache: "no-store" });
     if (!res.ok) return;
     const data = await res.json().catch(() => ({}));
+    let merged: PortalLoginConfig | null = null;
     if (data && typeof data.config === "object") {
-      const merged: PortalLoginConfig = {
+      merged = {
         ...defaultPortalLoginConfig,
         ...data.config
       } as PortalLoginConfig;
+    }
+
+    // Se a config estiver "crua" (sem logo e sem imagem de fundo), procurar outra controladora com marca
+    const isBare = (cfg: PortalLoginConfig | null) => {
+      if (!cfg) return true;
+      const noBrand = (!cfg.logoUrl || cfg.logoUrl.trim() === "") && (!cfg.backgroundImage || cfg.backgroundImage.trim() === "");
+      return noBrand;
+    };
+
+    if (isBare(merged)) {
+      try {
+        const listRes = await fetch(`${NEST_BASE}/controllers`, { cache: "no-store" });
+        if (listRes.ok) {
+          const listData = await listRes.json().catch(() => ({} as any));
+          const list = Array.isArray(listData.controllers) ? listData.controllers : [];
+          for (const c of list) {
+            const id = Number(c?.id) || 0;
+            if (!id || id === controllerId) continue;
+            try {
+              const cfgRes = await fetch(`${NEST_BASE}/controllers/${id}/portal-login-config`, { cache: "no-store" });
+              if (!cfgRes.ok) continue;
+              const cfgData = await cfgRes.json().catch(() => ({}));
+              const candidate = {
+                ...defaultPortalLoginConfig,
+                ...(cfgData?.config || {})
+              } as PortalLoginConfig;
+              if (!isBare(candidate)) {
+                merged = candidate;
+                // Replicar imediatamente para a controladora selecionada
+                try {
+                  await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-login-config`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(candidate)
+                  });
+                } catch (_) {}
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (merged) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
         window.dispatchEvent(new CustomEvent("portal:login-config", { detail: merged }));
@@ -292,5 +379,132 @@ export async function syncPortalLoginConfigFromBackend(): Promise<void> {
     }
   } catch (_) {
     // silencioso; se offline, permanecer com localStorage
+  }
+}
+
+// --- Post-login config (independente) ---
+export type PortalPostLoginConfig = PortalLoginConfig;
+
+export const defaultPortalPostLoginConfig: PortalPostLoginConfig = {
+  ...defaultPortalLoginConfig,
+};
+
+export function savePortalPostLoginConfig(config: PortalPostLoginConfig): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_POST, JSON.stringify(config));
+    window.dispatchEvent(new CustomEvent("portal:post-login-config", { detail: config }));
+  } catch (err) {
+    console.error("Erro ao salvar configuração pós-login:", err);
+  }
+  // Persistir no backend e replicar para todas as controladoras
+  try {
+    (async () => {
+      try {
+        const { getApiBases } = await import("../config/api");
+        const controllerId = (() => {
+          try { return Number(localStorage.getItem("portal.selectedControllerId") || "1") || 1; } catch (_) { return 1; }
+        })();
+        const { NEST_BASE } = await getApiBases();
+        await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-post-login-config`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(config)
+        });
+        try {
+          const listRes = await fetch(`${NEST_BASE}/controllers`, { cache: "no-store" });
+          if (listRes.ok) {
+            const listData = await listRes.json().catch(() => ({} as any));
+            const list = Array.isArray(listData.controllers) ? listData.controllers : [];
+            await Promise.all(list.map(async (c: any) => {
+              const id = Number(c?.id) || 0;
+              if (!id) return;
+              try {
+                await fetch(`${NEST_BASE}/controllers/${id}/portal-post-login-config`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(config)
+                });
+              } catch (_) {}
+            }));
+          }
+        } catch (_) {}
+      } catch (_err) {
+        // fallback localStorage
+      }
+    })();
+  } catch (_) {}
+}
+
+export function loadPortalPostLoginConfig(): PortalPostLoginConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_POST);
+    if (!raw) return defaultPortalPostLoginConfig;
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaultPortalPostLoginConfig,
+      ...parsed,
+    } as PortalPostLoginConfig;
+  } catch (err) {
+    console.warn("Falha ao carregar configuração pós-login, usando padrão.", err);
+    return defaultPortalPostLoginConfig;
+  }
+}
+
+// Sincroniza config pós-login: busca no backend; se não existir, copia do portal login (sem sobrescrever campos específicos)
+export async function syncPortalPostLoginConfigFromBackend(): Promise<void> {
+  try {
+    const { getApiBases } = await import("../config/api");
+    const { NEST_BASE } = await getApiBases();
+
+    let controllerId = (() => {
+      try {
+        const url = new URL(window.location.href);
+        const fromQuery = Number(url.searchParams.get("controllerId") || "0") || 0;
+        if (fromQuery > 0) return fromQuery;
+      } catch (_) {}
+      try { return Number(localStorage.getItem("portal.selectedControllerId") || "0") || 0; } catch (_) { return 0; }
+    })();
+
+    if (!controllerId || controllerId <= 0) controllerId = 1;
+    try { localStorage.setItem("portal.selectedControllerId", String(controllerId)); } catch (_) {}
+
+    const res = await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-post-login-config`, { cache: "no-store" });
+    let merged: PortalPostLoginConfig | null = null;
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data && typeof data.config === "object") {
+        merged = { ...defaultPortalPostLoginConfig, ...data.config } as PortalPostLoginConfig;
+      }
+    }
+
+    // Se não encontrou config pós-login, tentar usar a config de login como base
+    if (!merged) {
+      try {
+        const loginRes = await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-login-config`, { cache: "no-store" });
+        if (loginRes.ok) {
+          const ld = await loginRes.json().catch(() => ({}));
+          if (ld && typeof ld.config === "object") {
+            merged = { ...defaultPortalPostLoginConfig, ...ld.config } as PortalPostLoginConfig;
+            // Persistir essa cópia no backend para a controladora atual
+            try {
+              await fetch(`${NEST_BASE}/controllers/${controllerId}/portal-post-login-config`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(merged)
+              });
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (merged) {
+      try {
+        localStorage.setItem(STORAGE_KEY_POST, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent("portal:post-login-config", { detail: merged }));
+      } catch (_) {}
+    }
+  } catch (_) {
+    // silencioso
   }
 }

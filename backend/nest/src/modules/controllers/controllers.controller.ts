@@ -1,7 +1,12 @@
-import { Body, Controller, Get, Post, Headers, Param, Query, Delete, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Post, Headers, Param, Query, Delete, Patch, UseInterceptors, UploadedFile, Res } from '@nestjs/common';
 import { ControllersService } from './controllers.service.js';
 import type { ControllerRecord, PortalConfig } from './controllers.service.js';
 import { UnifiService } from '../unifi/unifi.service.js';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import fs from 'fs';
+import path from 'path';
+import type { Response } from 'express';
 
 @Controller()
 export class ControllersController {
@@ -145,6 +150,57 @@ export class ControllersController {
   async setPortalLoginConfig(@Param('id') id: string, @Body() body: Record<string, any>) {
     const cfg = await this.svc.setPortalLoginConfig(Number(id), body || {});
     return { config: cfg };
+  }
+
+  // Upload de imagem (logo ou background) para armazenamento em disco
+  @Post('/controllers/:id/upload-image')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (req, file, cb) => {
+        try {
+          const controllerId = String((req.params?.id || '1')).replace(/[^0-9]/g, '') || '1';
+          const baseDir = path.resolve(process.cwd(), 'uploads', 'portal', controllerId);
+          fs.mkdirSync(baseDir, { recursive: true });
+          cb(null, baseDir);
+        } catch (err) {
+          cb(err as any, path.resolve(process.cwd(), 'uploads'));
+        }
+      },
+      filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
+        const safeName = (file.originalname || 'image').replace(/[^a-zA-Z0-9_.-]/g, '_');
+        const stamp = Date.now();
+        cb(null, `${stamp}-${safeName}${ext}`);
+      }
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  }))
+  async uploadImage(@Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {
+    if (!file) return { error: 'file required' };
+    const controllerId = String(Number(id) || 1);
+    const rel = `/uploads/${controllerId}/${path.basename(file.filename || '')}`;
+    // Em desenvolvimento, servir via proxy do Vite com prefixo /api/nest
+    const url = `/api/nest${rel}`;
+    return { url };
+  }
+
+  // Servir arquivos estáticos enviados (somente leitura)
+  @Get('/uploads/:controllerId/:filename')
+  async serveUpload(
+    @Param('controllerId') controllerId: string,
+    @Param('filename') filename: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const baseDir = path.resolve(process.cwd(), 'uploads', 'portal', String(controllerId).replace(/[^0-9]/g, '') || '1');
+      const fullPath = path.join(baseDir, path.basename(filename));
+      if (!fs.existsSync(fullPath)) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      return res.sendFile(fullPath);
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'Failed to serve file' });
+    }
   }
 
   @Patch('/controllers/:id')

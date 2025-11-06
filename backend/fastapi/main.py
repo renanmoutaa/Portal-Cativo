@@ -14,13 +14,19 @@ load_dotenv(dotenv_path="../.env")
 NEST_PORT = int(os.getenv("NEST_PORT", "4002"))
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "4001"))
 FRONT_ORIGIN = os.getenv("FRONT_ORIGIN", "http://localhost:4000")
+# Permitir origens locais comuns em desenvolvimento: localhost, 127.0.0.1, faixas privadas 10.x, 192.168.x, 172.16-31.x
+FRONT_ORIGIN_REGEX = os.getenv(
+    "FRONT_ORIGIN_REGEX",
+    r"^https?://(localhost|127\.0\.0\.1|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3})(:\\d+)?$",
+)
 RESTART_SECRET = os.getenv("RESTART_SECRET", "dev-restart")
 
 app = FastAPI(title="Portal Cativo API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONT_ORIGIN, "http://localhost:5173"],
+    allow_origins=[FRONT_ORIGIN, "http://localhost:5173", "http://127.0.0.1:4000"],
+    allow_origin_regex=FRONT_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

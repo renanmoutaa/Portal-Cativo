@@ -24,16 +24,7 @@ app.get(['/guest', '/guest/s/:site', /^\/guest\/.*/, /^\/guest\/s\/[^/]+\/.*/, '
   return res.redirect(302, target);
 });
 
-// Redirecionar diretamente rotas de preview do portal (acesso manual)
-app.get(['/portal/login', '/portal/status-preview', '/portal/terms'], (req, res) => {
-  const pathOnly = req.path; // já inclui /portal/...
-  const hostHeader = req.headers.host || '';
-  const hostOnly = hostHeader.replace(/:.*/, '');
-  const qsIndex = req.originalUrl.indexOf('?');
-  const qs = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
-  const target = `http://${hostOnly}:4000${pathOnly}${qs}`;
-  return res.redirect(302, target);
-});
+// Não redirecionar /portal/*; deixar Nginx servir build ou Vite dev conforme host
 
 // Opcional: uma pequena página informativa na raiz
 app.get('/', (_, res) => {

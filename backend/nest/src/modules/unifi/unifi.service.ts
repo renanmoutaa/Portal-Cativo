@@ -334,30 +334,59 @@ export class UnifiService {
   // Revoga a autorização de convidado (unauthorize-guest)
   async unauthorizeGuest(controller: ControllerRecord, siteId: string, mac: string) {
     // Primeiro tenta sessão com cookie (mais compatível com UniFi OS)
-    const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Cookie: cookieHeader,
-    };
-    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    try {
+      const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Cookie: cookieHeader,
+      };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
 
-    const base = this.baseUrl(controller);
-    const payload = { cmd: 'unauthorize-guest', mac } as any;
-    const candidates = [
-      `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
-      `${base}/api/s/${siteId}/cmd/stamgr`,
-    ];
-    for (const url of candidates) {
-      const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
-      if (res.status >= 200 && res.status < 300) {
-        return Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data);
+      const base = this.baseUrl(controller);
+      const payload = { cmd: 'unauthorize-guest', mac } as any;
+      const candidates = [
+        `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
+        `${base}/api/s/${siteId}/cmd/stamgr`,
+      ];
+      for (const url of candidates) {
+        const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
+        if (res.status >= 200 && res.status < 300) {
+          return Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data);
+        }
+        if (![401, 403, 404].includes(res.status)) {
+          throw new Error(`Unauthorize failed (${res.status})`);
+        }
       }
-      if (![401, 403, 404].includes(res.status)) {
-        throw new Error(`Unauthorize failed (${res.status})`);
+      throw new Error('Nenhum endpoint de desautorização disponível');
+    } catch (cookieErr: any) {
+      // Fallback API v1 (integrations) — tenta ações conhecidas
+      try {
+        const clients = await this.getClients(controller, siteId);
+        const client = clients.find((c: any) => {
+          const clientMac = c.macAddress || c.mac || '';
+          return String(clientMac).toLowerCase().trim() === String(mac).toLowerCase().trim();
+        });
+        if (!client || !client.id) {
+          throw new Error(`Cliente com MAC ${mac} não encontrado`);
+        }
+        const url = `${this.v1Base(controller)}/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(client.id)}/actions`;
+        const actions = ['UNAUTHORIZE_GUEST_ACCESS', 'REVOKE_GUEST_AUTHORIZATION'];
+        let lastErr: any = null;
+        for (const action of actions) {
+          const res = await axios.post(url, { action }, { httpsAgent: this.agent, headers: this.headers(controller), validateStatus: () => true });
+          if (res.status >= 200 && res.status < 300) {
+            console.log(`[UniFi] unauthorize-guest via v1 OK (action=${action}): ${url} (site=${siteId}, mac=${mac}, clientId=${client.id})`);
+            return res.data;
+          }
+          lastErr = new Error(`v1 unauthorize failed (${res.status})`);
+        }
+        throw lastErr || new Error('Falha na desautorização via v1');
+      } catch (err: any) {
+        const msg = cookieErr?.message || err?.message || 'Falha na desautorização';
+        console.error('Falha na desautorização (cookie/v1):', msg);
+        throw new Error(msg);
       }
     }
-    // Como fallback, tentaria API v1 se soubéssemos a ação exata; manter cookie-flow por compatibilidade
-    throw new Error('Nenhum endpoint de desautorização disponível');
   }
 
   // Desconecta cliente (kick-sta)
@@ -381,39 +410,85 @@ export class UnifiService {
 
   // Bloqueia cliente (block-sta)
   async blockClient(controller: ControllerRecord, siteId: string, mac: string) {
-    const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', Cookie: cookieHeader };
-    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
-    const base = this.baseUrl(controller);
-    const payload = { cmd: 'block-sta', mac };
-    const candidates = [
-      `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
-      `${base}/api/s/${siteId}/cmd/stamgr`,
-    ];
-    for (const url of candidates) {
-      const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
-      if (res.status >= 200 && res.status < 300) return res.data;
-      if (![401,403,404].includes(res.status)) throw new Error(`Block failed (${res.status})`);
+    try {
+      const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', Cookie: cookieHeader };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      const base = this.baseUrl(controller);
+      const payload = { cmd: 'block-sta', mac };
+      const candidates = [
+        `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
+        `${base}/api/s/${siteId}/cmd/stamgr`,
+      ];
+      for (const url of candidates) {
+        const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
+        if (res.status >= 200 && res.status < 300) return res.data;
+        if (![401,403,404].includes(res.status)) throw new Error(`Block failed (${res.status})`);
+      }
+      throw new Error('Nenhum endpoint de bloqueio disponível');
+    } catch (cookieErr: any) {
+      // Fallback via API v1
+      try {
+        const clients = await this.getClients(controller, siteId);
+        const client = clients.find((c: any) => {
+          const clientMac = c.macAddress || c.mac || '';
+          return String(clientMac).toLowerCase().trim() === String(mac).toLowerCase().trim();
+        });
+        if (!client || !client.id) throw new Error(`Cliente com MAC ${mac} não encontrado`);
+        const url = `${this.v1Base(controller)}/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(client.id)}/actions`;
+        const res = await axios.post(url, { action: 'BLOCK_CLIENT' }, { httpsAgent: this.agent, headers: this.headers(controller), validateStatus: () => true });
+        if (res.status >= 200 && res.status < 300) {
+          console.log(`[UniFi] block via v1 OK: ${url} (site=${siteId}, mac=${mac}, clientId=${client.id})`);
+          return res.data;
+        }
+        throw new Error(`Block via v1 failed (${res.status})`);
+      } catch (err: any) {
+        const msg = cookieErr?.message || err?.message || 'Falha ao bloquear';
+        console.error('Falha ao bloquear (cookie/v1):', msg);
+        throw new Error(msg);
+      }
     }
-    throw new Error('Nenhum endpoint de bloqueio disponível');
   }
 
   // Desbloqueia cliente (unblock-sta)
   async unblockClient(controller: ControllerRecord, siteId: string, mac: string) {
-    const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', Cookie: cookieHeader };
-    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
-    const base = this.baseUrl(controller);
-    const payload = { cmd: 'unblock-sta', mac };
-    const candidates = [
-      `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
-      `${base}/api/s/${siteId}/cmd/stamgr`,
-    ];
-    for (const url of candidates) {
-      const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
-      if (res.status >= 200 && res.status < 300) return res.data;
-      if (![401,403,404].includes(res.status)) throw new Error(`Unblock failed (${res.status})`);
+    try {
+      const { cookieHeader, csrfToken } = await this.loginAndGetCookies(controller);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', Cookie: cookieHeader };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      const base = this.baseUrl(controller);
+      const payload = { cmd: 'unblock-sta', mac };
+      const candidates = [
+        `${base}/proxy/network/api/s/${siteId}/cmd/stamgr`,
+        `${base}/api/s/${siteId}/cmd/stamgr`,
+      ];
+      for (const url of candidates) {
+        const res = await axios.post(url, payload, { httpsAgent: this.agent, headers, validateStatus: () => true });
+        if (res.status >= 200 && res.status < 300) return res.data;
+        if (![401,403,404].includes(res.status)) throw new Error(`Unblock failed (${res.status})`);
+      }
+      throw new Error('Nenhum endpoint de desbloqueio disponível');
+    } catch (cookieErr: any) {
+      // Fallback via API v1
+      try {
+        const clients = await this.getClients(controller, siteId);
+        const client = clients.find((c: any) => {
+          const clientMac = c.macAddress || c.mac || '';
+          return String(clientMac).toLowerCase().trim() === String(mac).toLowerCase().trim();
+        });
+        if (!client || !client.id) throw new Error(`Cliente com MAC ${mac} não encontrado`);
+        const url = `${this.v1Base(controller)}/sites/${encodeURIComponent(siteId)}/clients/${encodeURIComponent(client.id)}/actions`;
+        const res = await axios.post(url, { action: 'UNBLOCK_CLIENT' }, { httpsAgent: this.agent, headers: this.headers(controller), validateStatus: () => true });
+        if (res.status >= 200 && res.status < 300) {
+          console.log(`[UniFi] unblock via v1 OK: ${url} (site=${siteId}, mac=${mac}, clientId=${client.id})`);
+          return res.data;
+        }
+        throw new Error(`Unblock via v1 failed (${res.status})`);
+      } catch (err: any) {
+        const msg = cookieErr?.message || err?.message || 'Falha ao desbloquear';
+        console.error('Falha ao desbloquear (cookie/v1):', msg);
+        throw new Error(msg);
+      }
     }
-    throw new Error('Nenhum endpoint de desbloqueio disponível');
   }
 }

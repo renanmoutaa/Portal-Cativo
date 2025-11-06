@@ -4,7 +4,7 @@ param(
     [int]$NestPort = 4002,
     [int]$RedirectPort = 80,
     [switch]$StartRedirectServer = $true,
-    [switch]$StartNginx = $false,
+    [switch]$StartNginx = $true,
     [switch]$UseMockController = $false
 )
 
@@ -16,6 +16,7 @@ $backendRoot = Join-Path $repoRoot 'backend'
 $fastapiRoot = Join-Path $backendRoot 'fastapi'
 $nestRoot = Join-Path $backendRoot 'nest'
 $scriptsRoot = Join-Path $repoRoot 'scripts'
+$composePath = Join-Path $backendRoot 'docker-compose.yml'
 
 function Write-Info($msg) { Write-Host "[start] $msg" }
 function Write-Warn($msg) { Write-Warning "[start] $msg" }
@@ -71,6 +72,61 @@ function Start-ServiceWindow {
     Start-Process -FilePath "powershell" -ArgumentList "-NoLogo -NoProfile -ExecutionPolicy Bypass -Command $fullCmd" -WorkingDirectory $WorkingDirectory | Out-Null
 }
 
+# --- Docker Desktop + Nginx helpers ---
+function Ensure-DockerDesktop {
+    try {
+        $dockerProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -in @('Docker Desktop','com.docker.backend','com.docker.proxy') }
+        if (-not $dockerProcs) {
+            $candidates = @(
+                (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+                (Join-Path $env:LocalAppData 'Docker\Docker Desktop.exe')
+            )
+            $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($exe) {
+                Write-Info "Iniciando Docker Desktop: $exe"
+                Start-Process -FilePath $exe | Out-Null
+            } else {
+                Write-Warn 'Docker Desktop não encontrado nas paths padrão. Prosseguindo mesmo assim.'
+            }
+        } else {
+            Write-Info 'Docker Desktop já parece em execução.'
+        }
+    } catch {
+        Write-Warn "Falha ao verificar/iniciar Docker Desktop: $($_.Exception.Message)"
+    }
+}
+
+function Wait-Docker {
+    param([int]$TimeoutSec = 240)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        try { docker info *> $null } catch {}
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Start-Sleep -Seconds 3
+    }
+    return $false
+}
+
+function Start-NginxCompose {
+    if (-not (Test-Path $composePath)) {
+        Write-Warn "Compose file não encontrado: $composePath"
+        return
+    }
+    Write-Info "Subindo serviço 'nginx' via docker compose"
+    $composeArgsPlugin = @('compose','-f', $composePath, 'up','-d', 'nginx')
+    & docker @composeArgsPlugin
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info "Plugin 'docker compose' indisponível, tentando 'docker-compose'"
+        $composeArgsLegacy = @('-f', $composePath, 'up','-d', 'nginx')
+        & docker-compose @composeArgsLegacy
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Falha ao subir Nginx (exit $LASTEXITCODE)"
+    } else {
+        Write-Info "Nginx iniciado com sucesso em http://localhost/"
+    }
+}
+
 # 1) Carregar .env do backend (se existir)
 Read-DotEnv (Join-Path $backendRoot '.env')
 
@@ -91,8 +147,8 @@ $pyExe = Ensure-FastApiVenv
 
 # 5) Iniciar serviços em janelas separadas
 
-# Frontend (Vite via dev.mjs)
-$frontCmd = "node `"$scriptsRoot\dev.mjs`""
+# Frontend (npm run dev)
+$frontCmd = "npm run dev"
 Start-ServiceWindow -Name "Frontend (Vite:$FrontPort)" -WorkingDirectory $repoRoot -PreScript "$env:PORT='$FrontPort'" -Command $frontCmd
 
 # FastAPI (uvicorn)
@@ -107,6 +163,16 @@ Start-ServiceWindow -Name "Nest ($NestPort)" -WorkingDirectory $nestRoot -PreScr
 if ($StartRedirectServer) {
     $serveCmd = "node `"$scriptsRoot\serve.mjs`""
     Start-ServiceWindow -Name "Redirect ($RedirectPort)" -WorkingDirectory $repoRoot -PreScript "$env:PORT='$RedirectPort'" -Command $serveCmd
+}
+
+# Nginx via Docker (opcional, por padrão ativado)
+if ($StartNginx) {
+    Ensure-DockerDesktop
+    if (Wait-Docker -TimeoutSec 240) {
+        Start-NginxCompose
+    } else {
+        Write-Warn 'Docker não ficou pronto dentro do tempo limite.'
+    }
 }
 
 # Unifi Mock (opcional)
@@ -125,8 +191,6 @@ Write-Host "- Frontend:     http://localhost:$FrontPort/"
 Write-Host "- FastAPI:      http://localhost:$FastApiPort/ (ex.: /health)"
 Write-Host "- Nest:         http://localhost:$NestPort/ (ex.: /controllers)"
 if ($StartRedirectServer) { Write-Host "- Redirect:      http://localhost:$RedirectPort/ (redireciona /guest -> /portal/login)" }
-if ($StartNginx) {
-    Write-Warn 'Você passou -StartNginx, mas este script não chama Docker. Use scripts\start-nginx.ps1 para subir Nginx.'
-}
+if ($StartNginx) { Write-Host "- Nginx (80):    http://localhost/portal/login" }
 
 Write-Host "\nPara parar, feche as janelas abertas dos serviços ou finalize os processos correspondentes."

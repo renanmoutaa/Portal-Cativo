@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isAuthenticated, logoutUser } from "./auth";
-import { loadPortalLoginConfig, PortalLoginConfig, STORAGE_KEY } from "./config";
+import { loadPortalPostLoginConfig, PortalPostLoginConfig, STORAGE_KEY_POST } from "./config";
 import { sanitizeRedirectUrl, isConnectivityCheckUrl } from "./url";
 import { CheckCircle, Facebook, Instagram, Twitter, Linkedin } from "lucide-react";
 
 export default function StatusPortal() {
   const navigate = useNavigate();
-  const [config, setConfig] = useState<PortalLoginConfig>(() => loadPortalLoginConfig());
-  const [secondsLeft, setSecondsLeft] = useState<number>(() => Math.max(0, (loadPortalLoginConfig().redirectWaitSeconds || 0)));
+  const [config, setConfig] = useState<PortalPostLoginConfig>(() => loadPortalPostLoginConfig());
+  const [secondsLeft, setSecondsLeft] = useState<number>(() => Math.max(0, (loadPortalPostLoginConfig().redirectWaitSeconds || 0)));
   const [connected, setConnected] = useState<boolean>(false);
 
   // Determina modo preview via rota ou query (?preview=1)
@@ -63,23 +63,23 @@ export default function StatusPortal() {
   // Atualizar config via storage e evento customizado para preview em tempo real
   useEffect(() => {
     function handleStorage(e: StorageEvent) {
-      if (e.key === STORAGE_KEY) {
-        setConfig(loadPortalLoginConfig());
+      if (e.key === STORAGE_KEY_POST) {
+        setConfig(loadPortalPostLoginConfig());
       }
     }
     function handleLocalUpdate(e: Event) {
-      const ce = e as CustomEvent<PortalLoginConfig>;
+      const ce = e as CustomEvent<PortalPostLoginConfig>;
       if (ce.detail) {
         setConfig(ce.detail);
       } else {
-        setConfig(loadPortalLoginConfig());
+        setConfig(loadPortalPostLoginConfig());
       }
     }
     window.addEventListener("storage", handleStorage);
-    window.addEventListener("portal:login-config", handleLocalUpdate as EventListener);
+    window.addEventListener("portal:post-login-config", handleLocalUpdate as EventListener);
     return () => {
       window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("portal:login-config", handleLocalUpdate as EventListener);
+      window.removeEventListener("portal:post-login-config", handleLocalUpdate as EventListener);
     };
   }, []);
 
@@ -90,7 +90,7 @@ export default function StatusPortal() {
       navigate("/portal/login", { replace: true });
       return;
     }
-    setConfig(loadPortalLoginConfig());
+    setConfig(loadPortalPostLoginConfig());
 
     const total = Math.max(0, (config.redirectWaitSeconds || 0));
     if (total > 0) setSecondsLeft(total);

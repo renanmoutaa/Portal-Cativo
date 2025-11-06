@@ -24,8 +24,9 @@ function killPortWindows(p) {
 }
 
 function startViteOnPort(p) {
-  const args = ['--port', p];
-  const child = spawn('vite', args, { stdio: 'inherit', shell: true });
+  const args = ['vite', '--port', p];
+  // Use npx to resolve local project binary (node_modules/.bin/vite)
+  const child = spawn('npx', args, { stdio: 'inherit', shell: true });
   child.on('exit', (code) => process.exit(code ?? 0));
 }
 
