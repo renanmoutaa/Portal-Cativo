@@ -13,35 +13,36 @@ services:
       - "127.0.0.1:5433:5432"
   
   fastapi:
-    image: python:3.11-slim
+    build: ./backend/fastapi
     container_name: portalcativo-fastapi
     restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./backend/fastapi:/app
     environment:
       FASTAPI_PORT: 4001
       NEST_PORT: 4002
       NEST_HOST: nest
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       - nest
-    command: >-
-      sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 4001"
+      - redis
+    volumes:
+      - fastapi_data:/app/data
+      - fastapi_logs:/app/logs
 
   nest:
-    image: node:20-alpine
+    build: ./backend/nest
     container_name: portalcativo-nest
     restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./backend/nest:/app
     environment:
       NEST_PORT: 4002
       DATABASE_URL: postgresql://portal:portal@postgres:5432/portalcativo
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       - postgres
-    command: >-
-      sh -c "npm install && node --loader ts-node/esm src/main.ts"
+    volumes:
+      - nest_uploads:/app/uploads
+      - nest_logs:/app/logs
 
 
   nginx:
@@ -53,11 +54,46 @@ services:
     volumes:
       - ./backend/nginx:/etc/nginx/conf.d:ro
       - ./build:/usr/share/nginx/html:ro
+      - nginx_logs:/var/log/nginx
     depends_on:
       - fastapi
       - nest
+      - n8n
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  redis:
+    image: redis:alpine
+    container_name: portalcativo-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: portalcativo-n8n
+    restart: unless-stopped
+    environment:
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_HOST=localhost
+      - N8N_LOG_LEVEL=info
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+
 volumes:
   pgdata:
+  nest_uploads:
+  nginx_logs:
+  fastapi_data:
+  fastapi_logs:
+  nest_logs:
+  redis_data:
+  n8n_data:

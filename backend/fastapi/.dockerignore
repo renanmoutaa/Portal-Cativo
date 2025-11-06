@@ -1,0 +1,29 @@
+# Python caches and virtualenvs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# Git and env files
+.git/
+.gitignore
+.env
+.env.*
+
+# Test and coverage artifacts
+tests/
+.coverage
+coverage.xml
+
+# Build/output (none typically for FastAPI, kept for safety)
+dist/
+
+# Optional runtime data (not needed in image)
+uploads/

@@ -1,15 +1,53 @@
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from uuid import uuid4
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
+import json
+try:
+    import redis  # type: ignore
+except Exception:
+    redis = None
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Tuple
 
 load_dotenv(dotenv_path="../.env")
+
+# ------------------------------
+# Logging em arquivo persistente
+# ------------------------------
+LOG_DIR = "/app/logs"
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except Exception:
+    # Se não conseguir criar, continua com stdout
+    pass
+
+log_file = os.path.join(LOG_DIR, "fastapi.log")
+logger_format = logging.Formatter(
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+)
+
+file_handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5)
+file_handler.setFormatter(logger_format)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+if not any(isinstance(h, RotatingFileHandler) for h in root_logger.handlers):
+    root_logger.addHandler(file_handler)
+
+# Capturar logs do Uvicorn
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    l = logging.getLogger(name)
+    l.setLevel(logging.INFO)
+    if not any(isinstance(h, RotatingFileHandler) for h in l.handlers):
+        l.addHandler(file_handler)
 
 NEST_PORT = int(os.getenv("NEST_PORT", "4002"))
 FASTAPI_PORT = int(os.getenv("FASTAPI_PORT", "4001"))
@@ -54,33 +92,77 @@ DB_PATH = "./clients.db"
 CACHE_TTL_SECONDS = int(os.getenv("CLIENTS_CACHE_TTL", "5"))
 CACHE: Dict[str, Dict[str, Any]] = {}
 
+# Redis opcional para cache
+REDIS_HOST = os.getenv("REDIS_HOST", "")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+_redis_client = None
+if redis and REDIS_HOST:
+    try:
+        _redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+        # teste simples
+        _redis_client.ping()
+        print(f"Redis conectado em {REDIS_HOST}:{REDIS_PORT}")
+    except Exception as e:
+        print(f"Falha ao conectar ao Redis: {e}")
+        _redis_client = None
+
 def _cache_get(key: str):
     try:
-        ent = CACHE.get(key)
-        if not ent:
-            return None
-        exp = ent.get("expires")
-        if isinstance(exp, datetime) and exp < datetime.now(timezone.utc):
-            CACHE.pop(key, None)
-            return None
-        return ent.get("value")
+        if _redis_client:
+            raw = _redis_client.get(key)
+            if raw is None:
+                return None
+            try:
+                return json.loads(raw)
+            except Exception:
+                return raw
+        else:
+            ent = CACHE.get(key)
+            if not ent:
+                return None
+            exp = ent.get("expires")
+            if isinstance(exp, datetime) and exp < datetime.now(timezone.utc):
+                CACHE.pop(key, None)
+                return None
+            return ent.get("value")
     except Exception:
         return None
 
 def _cache_set(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
     try:
-        CACHE[key] = {
-            "value": value,
-            "expires": datetime.now(timezone.utc) + timedelta(seconds=max(1, ttl)),
-        }
+        if _redis_client:
+            try:
+                payload = json.dumps(value)
+            except Exception:
+                payload = str(value)
+            _redis_client.setex(key, max(1, ttl), payload)
+        else:
+            CACHE[key] = {
+                "value": value,
+                "expires": datetime.now(timezone.utc) + timedelta(seconds=max(1, ttl)),
+            }
     except Exception:
         pass
 
 def _cache_invalidate_prefix(prefix: str):
     try:
-        for k in list(CACHE.keys()):
-            if k.startswith(prefix):
-                CACHE.pop(k, None)
+        if _redis_client:
+            # Limpar chaves por prefixo (SCAN para evitar bloqueios)
+            try:
+                cursor = 0
+                pattern = f"{prefix}*"
+                while True:
+                    cursor, keys = _redis_client.scan(cursor=cursor, match=pattern, count=100)
+                    if keys:
+                        _redis_client.delete(*keys)
+                    if cursor == 0:
+                        break
+            except Exception:
+                pass
+        else:
+            for k in list(CACHE.keys()):
+                if k.startswith(prefix):
+                    CACHE.pop(k, None)
     except Exception:
         pass
 

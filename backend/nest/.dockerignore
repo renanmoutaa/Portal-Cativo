@@ -1,0 +1,22 @@
+# Node build artifacts
+node_modules/
+dist/
+coverage/
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# Git and env files
+.git/
+.gitignore
+.env
+.env.*
+
+# Optional runtime data (handled externally)
+uploads/
