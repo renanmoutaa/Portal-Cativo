@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: portal
       POSTGRES_DB: portalcativo
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     ports:
       - "127.0.0.1:5433:5432"
   
@@ -16,6 +16,8 @@ services:
     build: ./backend/fastapi
     container_name: portalcativo-fastapi
     restart: unless-stopped
+    ports:
+      - "4001:4001"
     environment:
       FASTAPI_PORT: 4001
       NEST_PORT: 4002
@@ -33,6 +35,8 @@ services:
     build: ./backend/nest
     container_name: portalcativo-nest
     restart: unless-stopped
+    ports:
+      - "4002:4002"
     environment:
       NEST_PORT: 4002
       DATABASE_URL: postgresql://portal:portal@postgres:5432/portalcativo
@@ -52,7 +56,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./backend/nginx:/etc/nginx/conf.d:ro
+      - ./backend/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./build:/usr/share/nginx/html:ro
       - nginx_logs:/var/log/nginx
     depends_on:
@@ -80,7 +84,19 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - N8N_HOST=localhost
+      - N8N_PATH=/n8n/
       - N8N_LOG_LEVEL=info
+      - N8N_EDITOR_BASE_URL=http://localhost/n8n/
+      - N8N_RUNNERS_ENABLED=true
+      - DB_SQLITE_POOL_SIZE=4
+      - N8N_PUBLIC_API_ENABLED=true
+      - N8N_PUBLIC_API_ENDPOINT=api
+      - N8N_ENDPOINT_REST=rest
+      - N8N_ENDPOINT_WEBHOOK=webhook
+      - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
+      - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-wait
+      - N8N_ENDPOINT_FORM_TEST=form-test
+      - WEBHOOK_URL=http://localhost/n8n
     ports:
       - "5678:5678"
     volumes:
